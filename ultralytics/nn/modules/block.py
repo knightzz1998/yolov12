@@ -434,7 +434,7 @@ class MaxSigmoidAttnBlock(nn.Module):
 
         aw = torch.einsum("bmchw,bnmc->bmhwn", embed, guide)
         aw = aw.max(dim=-1)[0]
-        aw = aw / (self.hc**0.5)
+        aw = aw / (self.hc ** 0.5)
         aw = aw + self.bias[None, :, None, None]
         aw = aw.sigmoid() * self.scale
 
@@ -496,7 +496,7 @@ class ImagePoolingAttn(nn.Module):
         """Executes attention mechanism on input tensor x and guide tensor."""
         bs = x[0].shape[0]
         assert len(x) == self.nf
-        num_patches = self.k**2
+        num_patches = self.k ** 2
         x = [pool(proj(x)).view(bs, -1, num_patches) for (x, proj, pool) in zip(x, self.projections, self.im_pools)]
         x = torch.cat(x, dim=-1).transpose(1, 2)
         q = self.query(text)
@@ -509,7 +509,7 @@ class ImagePoolingAttn(nn.Module):
         v = v.reshape(bs, -1, self.nh, self.hc)
 
         aw = torch.einsum("bnmc,bkmc->bmnk", q, k)
-        aw = aw / (self.hc**0.5)
+        aw = aw / (self.hc ** 0.5)
         aw = F.softmax(aw, dim=-1)
 
         x = torch.einsum("bmnk,bkmc->bnmc", aw, v)
@@ -890,7 +890,7 @@ class Attention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.key_dim = int(self.head_dim * attn_ratio)
-        self.scale = self.key_dim**-0.5
+        self.scale = self.key_dim ** -0.5
         nh_kd = self.key_dim * num_heads
         h = dim + nh_kd * 2
         self.qkv = Conv(dim, h, 1, act=False)
@@ -1157,21 +1157,28 @@ class TorchVision(nn.Module):
             y = self.m(x)
         return y
 
+
 import logging
+
 logger = logging.getLogger(__name__)
 
 USE_FLASH_ATTN = False
 try:
     import torch
+
     if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:  # Ampere or newer
         from flash_attn.flash_attn_interface import flash_attn_func
+
         USE_FLASH_ATTN = True
     else:
         from torch.nn.functional import scaled_dot_product_attention as sdpa
+
         logger.warning("FlashAttention is not available on this device. Using scaled_dot_product_attention instead.")
 except Exception:
     from torch.nn.functional import scaled_dot_product_attention as sdpa
+
     logger.warning("FlashAttention is not available on this device. Using scaled_dot_product_attention instead.")
+
 
 class AAttn(nn.Module):
     """
@@ -1212,7 +1219,6 @@ class AAttn(nn.Module):
         self.proj = Conv(all_head_dim, dim, 1, act=False)
 
         self.pe = Conv(all_head_dim, dim, 5, 1, 2, g=dim, act=False)
-
 
     def forward(self, x):
         """Processes the input tensor 'x' through the area-attention"""
@@ -1270,7 +1276,7 @@ class AAttn(nn.Module):
             x = x.reshape(B, C, H, W)
 
         return self.proj(x + pp)
-    
+
 
 class ABlock(nn.Module):
     """
@@ -1323,7 +1329,7 @@ class ABlock(nn.Module):
         return x
 
 
-class A2C2f(nn.Module):  
+class A2C2f(nn.Module):
     """
     A2C2f module with residual enhanced feature extraction using ABlock blocks with area-attention. Also known as R-ELAN
 
@@ -1368,7 +1374,9 @@ class A2C2f(nn.Module):
         self.gamma = nn.Parameter(init_values * torch.ones((c2)), requires_grad=True) if a2 and residual else None
 
         self.m = nn.ModuleList(
-            nn.Sequential(*(ABlock(c_, num_heads, mlp_ratio, area) for _ in range(2))) if a2 else C3k(c_, c_, 2, shortcut, g) for _ in range(n)
+            nn.Sequential(*(ABlock(c_, num_heads, mlp_ratio, area) for _ in range(2))) if a2 else C3k(c_, c_, 2,
+                                                                                                      shortcut, g) for _
+            in range(n)
         )
 
     def forward(self, x):
@@ -1378,3 +1386,51 @@ class A2C2f(nn.Module):
         if self.gamma is not None:
             return x + self.gamma.view(1, -1, 1, 1) * self.cv2(torch.cat(y, 1))
         return self.cv2(torch.cat(y, 1))
+
+
+def test_c3k2():
+    # 定义测试参数
+    c1 = 64  # 输入通道数
+    # 64
+    c2 = 64  # 输出通道数
+    n = 2  # 重复次数
+    c3k = False  # 是否使用 C3k 模块
+    e = 0.25  # 宽度乘法因子
+    g = 1  # 组卷积数
+    shortcut = True  # 是否使用残差连接
+
+    # 创建 C3k2 模块实例
+    c3k2_module = C3k2(c1, c2, n, c3k, e, g, shortcut)
+
+    # 生成随机输入数据
+    # 假设输入数据的形状为 (batch_size, channels, height, width)
+    batch_size = 1
+    height = 128
+    width = 128
+    input_data = torch.randn(batch_size, c1, height, width)
+
+    # 执行前向传播
+    output_data = c3k2_module(input_data)
+
+    # 验证输出形状
+    expected_output_shape = (batch_size, c2, height, width)
+    assert output_data.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output_data.shape}"
+
+    print(f"Input shape: {input_data.shape}")
+    print(f"Output shape: {output_data.shape}")
+    print("Test passed!")
+
+
+def test_A2C2f():
+    model = A2C2f(c1=256, c2=256, n=2, a2=True, area=1, residual=True, e=0.5)
+    x = torch.randn(2, 256, 128, 128)
+    output = model(x)
+    print(f"res : {output.shape}")
+
+
+# 调用测试方法
+if __name__ == "__main__":
+    model = A2C2f(c1=256, c2=256, n=2, a2=True, area=1, residual=True, e=0.5)
+    x = torch.randn(2, 256, 128, 128)
+    output = model(x)
+    print(output.shape)

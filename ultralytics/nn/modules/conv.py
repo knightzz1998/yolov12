@@ -1,6 +1,6 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """Convolution modules."""
-
+import logging
 import math
 
 import numpy as np
@@ -24,6 +24,10 @@ __all__ = (
     "Index",
 )
 
+from ultralytics.utils import set_logging
+
+set_logging(name="conv", verbose=True)
+logger = logging.getLogger("conv")
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
     """Pad to 'same' shape outputs."""
@@ -42,17 +46,25 @@ class Conv(nn.Module):
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
         """Initialize Conv layer with given arguments including activation."""
         super().__init__()
+        # 打印全部初始化参数
+        #logger.info(f"Conv: {c1} -> {c2} -> {k} -> {s}")
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
         self.bn = nn.BatchNorm2d(c2)
         self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
 
     def forward(self, x):
         """Apply convolution, batch normalization and activation to input tensor."""
-        return self.act(self.bn(self.conv(x)))
+        res = self.act(self.bn(self.conv(x)))
+        # 打印维度
+        # logger.info(f"forward Conv: {x.shape} -> {res.shape}")
+        return res
 
     def forward_fuse(self, x):
         """Apply convolution and activation without batch normalization."""
-        return self.act(self.conv(x))
+        # 打印维度
+        res = self.act(self.conv(x))
+        # logger.info(f"forward_fuse Conv: {x.shape} -> {res.shape}")
+        return res
 
 
 class Conv2(Conv):
@@ -75,7 +87,7 @@ class Conv2(Conv):
         """Fuse parallel convolutions."""
         w = torch.zeros_like(self.conv.weight.data)
         i = [x // 2 for x in w.shape[2:]]
-        w[:, :, i[0] : i[0] + 1, i[1] : i[1] + 1] = self.cv2.weight.data.clone()
+        w[:, :, i[0]: i[0] + 1, i[1]: i[1] + 1] = self.cv2.weight.data.clone()
         self.conv.weight.data += w
         self.__delattr__("cv2")
         self.forward = self.forward_fuse
@@ -348,3 +360,42 @@ class Index(nn.Module):
         Expects a list of tensors as input.
         """
         return x[self.index]
+
+
+def test_conv():
+    # 定义输入通道数、输出通道数、卷积核大小、步幅等参数
+    c1, c2, k, s = 3, 16, 3, 1
+    # 创建一个随机输入张量，形状为 (batch_size, channels, height, width)
+    input_tensor = torch.randn(1, c1, 224, 224)
+
+    # 创建 Conv 层实例
+    conv_layer = Conv(c1, c2, k, s)
+
+    # 前向传播
+    output_tensor = conv_layer(input_tensor)
+
+    # 打印输入和输出的维度
+    print(f"Input tensor shape: {input_tensor.shape}")
+    print(f"Output tensor shape: {output_tensor.shape}")
+
+
+def test_conv_input_output():
+    # 定义输入通道数、输出通道数、卷积核大小、步幅等参数
+    c1, c2, k, s = 3, 64, 3, 2
+    # 256, 3, 2, 1, 4
+    # 创建一个随机输入张量，形状为 (batch_size, channels, height, width)
+    input_tensor = torch.randn(1, c1, 640, 640)
+
+    # 创建 Conv 层实例
+    conv_layer = Conv(c1, c2, k, s)
+
+    # 前向传播
+    output_tensor = conv_layer(input_tensor)
+
+    # 打印输入和输出的维度
+    print(f"Input tensor shape: {input_tensor.shape}")
+    print(f"Output tensor shape: {output_tensor.shape}")
+
+
+if __name__ == '__main__':
+    test_conv_input_output()

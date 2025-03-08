@@ -11,6 +11,8 @@ import thop
 import torch
 import torch.nn as nn
 
+from ultralytics.nn.modules.custom import (CLFT,SPConv_3x3,RFCAConv)
+
 from ultralytics.nn.modules import (
     AIFI,
     C1,
@@ -962,7 +964,11 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 with contextlib.suppress(ValueError):
                     args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
         n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
+        # 模块定义
         if m in {
+            # TODO 新增 CLFT
+            #CLFT,
+            #SPConv_3x3,
             Classify,
             Conv,
             ConvTranspose,
@@ -1064,6 +1070,23 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [c1, c2, *args[1:]]
         elif m is CBFuse:
             c2 = ch[f[-1]]
+        elif m is CLFT:
+            #  [16, 64, 16384]]
+            in_dim = args[0]
+            out_dim = args[1]
+            in_feature = args[2]
+            out_feature = args[3]
+            args = [in_dim, out_dim, in_feature, out_feature]
+        elif m is SPConv_3x3:
+            in_dim = args[0]
+            out_dim = args[1]
+            args = [in_dim, out_dim]
+        elif m is RFCAConv:
+            in_dim = args[0]
+            out_dim = args[1]
+            k = args[2]
+            s = args[3]
+            args = [in_dim, out_dim, k, s]
         else:
             c2 = ch[f]
 
